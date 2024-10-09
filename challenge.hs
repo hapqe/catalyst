@@ -1,49 +1,91 @@
+module Challenge where
+
 import Data.Function (on)
-import Data.List (groupBy, sortBy, transpose)
+import Data.IntMap (disjoint)
+import Data.List (groupBy, sort, sortBy, tails, transpose)
+import Data.Ord (comparing)
+import Data.Sequence (chunksOf)
+import Prelude hiding (compare)
 
-distance = length . filter (== 'F')
+x = (!! 0)
 
-dirs :: [[Int]]
-dirs = [[0, 1], [1, 0], [0, -1], [-1, 0]]
+y = (!! 1)
 
-perform 'F' p i = (zipWith (+) p $ cycle dirs !! i, i)
-perform 'L' p i = (p, i - 1)
-perform 'R' p i = (p, i + 1)
+pairs [] = []
+pairs (a : b : bs) = [a, b] : pairs bs
 
 stretch [] = []
 stretch (cmd : n : rest) = replicate (read n :: Int) cmd ++ stretch rest
 
 actions = concat . stretch . tail . words
 
-performAll _ p [] = (p, [])
-performAll prevI positions@(prevPos : _) (action : as) =
-  let (pos, i) = perform action prevPos prevI
-   in performAll i (pos : positions) as
+perform _ p [] = (p, [])
+perform prevDir positions@(prevPos : _) (action : actions) =
+  perform dir (pos : positions) actions
+  where
+    step 'F' pos dir = (zipWith (+) pos dir, dir)
+    step 'L' pos [x, y] = (pos, [y, -x])
+    step 'R' pos [x, y] = (pos, [-y, x])
+
+    (pos, dir) = step action prevPos prevDir
+
+positions = fst . perform [0, 1] [[0, 0]]
+
+distance = length . filter (== 'F')
 
 square =
   product
     . map ((-) . minimum <*> maximum)
     . transpose
-    . fst
-    . performAll 400 [[0, 0]]
 
-solution = putStrLn . unwords . map show . ((:) . distance <*> return . square) . actions
+solution =
+  unwords
+    . map show
+    . mconcat (map (return .) [distance, square . positions, length . surface . positions])
+    . actions
 
-rotate = drop <> take
-
-velocities :: [[Int]] -> [[Int]]
-velocities = (.) id (<*> rotate 1) $ zipWith $ zipWith (-)
-
-verticals = map (!! 0) . sortBy (compare `on` (!! 1)) . map offset . filter ((/= 0) . yv) . (zip <*> velocities)
+velocities = (<*> rotate 1) $ zipWith $ zipWith (-)
   where
-    yv = (!! 1) . snd
+    rotate = drop <> take
+
+verticals =
+  sortBy (comparing y <> comparing x)
+    . map offset
+    . filter ((/= 0) . y . snd)
+    . (zip <*> velocities)
+  where
     offset ([a, b], [_, 1]) = [a, b - 1]
-    offset ([a, b], [_, _]) = [a, b]
+    offset (pos, [_, _]) = pos
 
-area = compute . verticals
+horizontals = map reverse . verticals . map reverse
+
+line [[xa, y], [xb, _]] = map (vec2 y) [xa .. xb - 1]
   where
-    compute [] = 0
-    compute (a : b : bs) = max a b - min a b + compute bs
+    vec2 y x = [x, y]
+
+surface = concatMap line . pairs . verticals
+
+-- enclosed = concatMap (concatMap create . (zip <*> drop 2) . pairs) . groupBy compare . verticals
+--   where
+--     create ([_, [bx, y]], [[cx, _], _]) = line [[bx, y], [cx, y]]
+
+compare a b c = c a == c b
+
+-- enclosed = concatMap (concatMap create . (zip <*> drop 2) . map pairs) . groupBy compareY . verticals
+--   where
+
+-- phi :: (b -> b -> c) -> (a -> b) -> (a -> b) -> a -> c (signature for the phi combinator)
+
+create ([_, [bx, y]], [[cx, _], _]) = line [[bx, y], [cx, y]]
+
+-- >>> map create . concatMap ((zip <*> drop 1) . pairs) . groupBy compare x . horizontals . positions . actions $ (inputs !! 1)
+-- [([[-4,0],[-4,2]],[[-4,4],[-4,6]]),([[-3,0],[-3,2]],[[-3,4],[-3,6]])]
+
+-- pockets x = []
+
+area = sum . map dist . pairs . map x . verticals
+  where
+    dist [a, b] = b - a
 
 inputs =
   [ "1 FFFR 4",
@@ -53,4 +95,4 @@ inputs =
     "10 FFLFRFRFFLFLFRFF 5 L 1 FFFRFLFLFRFF 4 L 1 FFLFRFRFFLFLFRFF 8 L 1 FFLFRFRFFLFLFRFF 4 L 1 FFFFFF 3 R 1"
   ]
 
-main = mapM_ solution inputs
+main = mapM_ (putStrLn . solution) inputs
